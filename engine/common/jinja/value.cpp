@@ -770,7 +770,7 @@ const func_builtins & value_string_t::get_builtins() const {
             }
             std::string str = val_input->as_string().str();
             try {
-                return mk_val<value_int>(std::stoi(str, nullptr, base));
+                return mk_val<value_int>(std::stoll(str, nullptr, base));
             } catch (...) {
                 return mk_val<value_int>(val_default->is_undefined() ? 0 : val_default->as_int());
             }

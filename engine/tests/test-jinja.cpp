@@ -23,6 +23,7 @@ static void test_loops(testing & t);
 static void test_expressions(testing & t);
 static void test_set_statement(testing & t);
 static void test_filters(testing & t);
+static void test_integer_string_width(testing & t);
 static void test_literals(testing & t);
 static void test_comments(testing & t);
 static void test_macros(testing & t);
@@ -62,6 +63,7 @@ int main(int argc, char *argv[]) {
     t.test("expressions", test_expressions);
     t.test("set statement", test_set_statement);
     t.test("filters", test_filters);
+    t.test("integer string width", test_integer_string_width);
     t.test("literals", test_literals);
     t.test("comments", test_comments);
     t.test("macros", test_macros);
@@ -823,6 +825,35 @@ static void test_filters(testing & t) {
         {{"x", nullptr}},
         "None"
     );
+}
+
+static void test_integer_string_width(testing & t) {
+    struct example { const char * name; const char * input; int base; const char * expected; };
+    const example cases[] = {
+        {"positive beyond int32", "4294967296", 10, "4294967296"},
+        {"negative beyond int32", "-4294967296", 10, "-4294967296"},
+        {"maximum int64", "9223372036854775807", 10, "9223372036854775807"},
+        {"minimum int64", "-9223372036854775808", 10, "-9223372036854775808"},
+        {"maximum hexadecimal", "7fffffffffffffff", 16, "9223372036854775807"},
+        {"minimum hexadecimal", "-8000000000000000", 16, "-9223372036854775808"},
+        {"wide binary", "100000000000000000000000000000000", 2, "4294967296"},
+        {"wide octal", "40000000000", 8, "4294967296"},
+        {"wide signed whitespace", "  +4294967296 \n", 10, "4294967296"},
+        {"ordinary decimal", "42", 10, "42"},
+        {"ordinary negative", "-17", 10, "-17"},
+        {"ordinary hexadecimal", "ff", 16, "255"},
+        {"invalid text", "not a number", 10, "7"},
+        {"empty text", "", 10, "7"},
+        {"positive overflow", "9223372036854775808", 10, "7"},
+        {"negative overflow", "-9223372036854775809", 10, "7"},
+    };
+    for (const auto & item : cases) {
+        // Python has arbitrary-width integers; the last two cases instead
+        // verify this runtime's existing bounded-value overflow fallback.
+        if (g_python_mode && std::string(item.name).find("overflow") != std::string::npos) { continue; }
+        test_template(t, item.name, "{{ input | int(default=7, base=radix) }}",
+                {{"input", item.input}, {"radix", item.base}}, item.expected);
+    }
 }
 
 static void test_literals(testing & t) {
