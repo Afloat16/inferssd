@@ -244,17 +244,21 @@ value binary_expression::execute_impl(context & ctx) {
                 return mk_val<value_int>(static_cast<int64_t>(rem));
             }
         } else if (op.value == "<") {
-            JJ_DEBUG("Comparison operation: %f < %f is %d", a, b, a < b);
-            return mk_val<value_bool>(a < b);
+            const bool result = value_compare(left_val, right_val, value_compare_op::lt);
+            JJ_DEBUG("Comparison operation: %s < %s is %d", left_val->as_string().str().c_str(), right_val->as_string().str().c_str(), result);
+            return mk_val<value_bool>(result);
         } else if (op.value == ">") {
-            JJ_DEBUG("Comparison operation: %f > %f is %d", a, b, a > b);
-            return mk_val<value_bool>(a > b);
+            const bool result = value_compare(left_val, right_val, value_compare_op::gt);
+            JJ_DEBUG("Comparison operation: %s > %s is %d", left_val->as_string().str().c_str(), right_val->as_string().str().c_str(), result);
+            return mk_val<value_bool>(result);
         } else if (op.value == ">=") {
-            JJ_DEBUG("Comparison operation: %f >= %f is %d", a, b, a >= b);
-            return mk_val<value_bool>(a >= b);
+            const bool result = value_compare(left_val, right_val, value_compare_op::ge);
+            JJ_DEBUG("Comparison operation: %s >= %s is %d", left_val->as_string().str().c_str(), right_val->as_string().str().c_str(), result);
+            return mk_val<value_bool>(result);
         } else if (op.value == "<=") {
-            JJ_DEBUG("Comparison operation: %f <= %f is %d", a, b, a <= b);
-            return mk_val<value_bool>(a <= b);
+            const bool result = value_compare(right_val, left_val, value_compare_op::ge);
+            JJ_DEBUG("Comparison operation: %s <= %s is %d", left_val->as_string().str().c_str(), right_val->as_string().str().c_str(), result);
+            return mk_val<value_bool>(result);
         }
     }
 

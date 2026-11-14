@@ -1320,19 +1320,18 @@ bool value_compare(const value & a, const value & b, value_compare_op op) {
         if ((is_val<value_int>(a) || is_val<value_float>(a)) &&
             (is_val<value_int>(b) || is_val<value_float>(b))){
             try {
-                if (op == value_compare_op::eq) {
-                    return a->as_float() == b->as_float();
-                } else if (op == value_compare_op::ge) {
-                    return a->as_float() >= b->as_float();
-                } else if (op == value_compare_op::gt) {
-                    return a->as_float() > b->as_float();
-                } else if (op == value_compare_op::lt) {
-                    return a->as_float() < b->as_float();
-                } else if (op == value_compare_op::ne) {
-                    return a->as_float() != b->as_float();
-                } else {
+                const auto compare = [op](auto lhs, auto rhs) {
+                    if (op == value_compare_op::eq) { return lhs == rhs; }
+                    if (op == value_compare_op::ge) { return lhs >= rhs; }
+                    if (op == value_compare_op::gt) { return lhs > rhs; }
+                    if (op == value_compare_op::lt) { return lhs < rhs; }
+                    if (op == value_compare_op::ne) { return lhs != rhs; }
                     throw std::runtime_error("Unsupported comparison operator for numeric types");
+                };
+                if (is_val<value_int>(a) && is_val<value_int>(b)) {
+                    return compare(a->as_int(), b->as_int());
                 }
+                return compare(a->as_float(), b->as_float());
             } catch (...) {}
         }
         // compare string and number

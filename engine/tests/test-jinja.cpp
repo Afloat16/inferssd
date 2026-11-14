@@ -23,6 +23,7 @@ static void test_loops(testing & t);
 static void test_expressions(testing & t);
 static void test_set_statement(testing & t);
 static void test_filters(testing & t);
+static void test_integer_comparisons(testing & t);
 static void test_literals(testing & t);
 static void test_comments(testing & t);
 static void test_macros(testing & t);
@@ -62,6 +63,7 @@ int main(int argc, char *argv[]) {
     t.test("expressions", test_expressions);
     t.test("set statement", test_set_statement);
     t.test("filters", test_filters);
+    t.test("integer comparisons", test_integer_comparisons);
     t.test("literals", test_literals);
     t.test("comments", test_comments);
     t.test("macros", test_macros);
@@ -823,6 +825,44 @@ static void test_filters(testing & t) {
         {{"x", nullptr}},
         "None"
     );
+}
+
+static void test_integer_comparisons(testing & t) {
+    const int64_t low = INT64_C(9007199254740993);
+    const int64_t high = INT64_C(9007199254740995);
+    const json pair = {{"low", low}, {"high", high}};
+    test_template(t, "operator less than", "{{ low < high }}", pair, "True");
+    test_template(t, "operator greater than", "{{ high > low }}", pair, "True");
+    test_template(t, "operator greater or equal", "{{ low >= high }}", pair, "False");
+    test_template(t, "operator less or equal", "{{ high <= low }}", pair, "False");
+    test_template(t, "operator equality", "{{ low == high }}", pair, "False");
+    test_template(t, "operator inequality", "{{ low != high }}", pair, "True");
+    test_template(t, "distinct equality", "{{ low is eq(high) }}", pair, "False");
+    test_template(t, "distinct inequality", "{{ low is ne(high) }}", pair, "True");
+    test_template(t, "less than", "{{ low is lt(high) }}", pair, "True");
+    test_template(t, "greater than", "{{ high is gt(low) }}", pair, "True");
+    test_template(t, "greater or equal", "{{ low is ge(high) }}", pair, "False");
+    test_template(t, "negative order", "{{ low is lt(high) }}",
+            {{"low", -high}, {"high", -low}}, "True");
+    test_template(t, "near signed maximum", "{{ low is lt(high) }}",
+            {{"low", INT64_C(9223372036854775805)}, {"high", INT64_C(9223372036854775807)}}, "True");
+    test_template(t, "representable neighbor", "{{ low is lt(high) }}",
+            {{"low", low}, {"high", low + 1}}, "True");
+    test_template(t, "ascending sort", "{{ values | sort | join(',') }}",
+            {{"values", json::array({high, low})}}, "9007199254740993,9007199254740995");
+    test_template(t, "descending sort", "{{ values | sort(reverse=true) | join(',') }}",
+            {{"values", json::array({low, high})}}, "9007199254740995,9007199254740993");
+    const json records = {{"items", json::array({{{"id", high}, {"name", "high"}}, {{"id", low}, {"name", "low"}}})}, {"low", low}};
+    test_template(t, "attribute sort", "{% for item in items | sort(attribute='id') %}{{ item.name }} {% endfor %}", records, "low high ");
+    test_template(t, "attribute selection", "{% for item in items | selectattr('id', 'eq', low) %}{{ item.name }} {% endfor %}", records, "low ");
+    test_template(t, "dictionary value sort", "{% for key, val in values | dictsort(by='value') %}{{ key }} {% endfor %}",
+            {{"values", {{"high", high}, {"low", low}}}}, "low high ");
+    test_template(t, "equal wide integers", "{{ low is eq(low) }}|{{ low is ge(low) }}", pair, "True|True");
+    test_template(t, "ordinary integers", "{{ low is lt(high) }}", {{"low", -4}, {"high", 5}}, "True");
+    test_template(t, "fractional numbers", "{{ low is lt(high) }}", {{"low", 0.25}, {"high", 0.5}}, "True");
+    test_template(t, "mixed ordinary numbers", "{{ low is lt(high) }}", {{"low", 2}, {"high", 2.5}}, "True");
+    test_template(t, "boolean equality", "{{ true is eq(true) }}", json::object(), "True");
+    test_template(t, "string sorting", "{{ values | sort | join(',') }}", {{"values", json::array({"b", "a"})}}, "a,b");
 }
 
 static void test_literals(testing & t) {
