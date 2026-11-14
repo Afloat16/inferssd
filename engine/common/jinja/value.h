@@ -213,11 +213,17 @@ struct value_equality {
 // primitive value types
 //
 
+// The upper bound is exclusive: double(INT64_MAX) rounds up to 2^63.
+// These comparisons also reject infinities and NaN before an integer cast.
+inline bool is_int64_convertible(double value) {
+    return value >= -0x1p63 && value < 0x1p63;
+}
+
 struct value_int_t : public value_t {
     value_int_t(int64_t v) {
         val_int = v;
         val_flt = static_cast<double>(v);
-        if (static_cast<int64_t>(val_flt) != v) {
+        if (!is_int64_convertible(val_flt) || static_cast<int64_t>(val_flt) != v) {
             val_flt = v < 0 ? -INFINITY : INFINITY;
         }
     }
@@ -251,7 +257,7 @@ struct value_float_t : public value_t {
     value val;
     value_float_t(double v) {
         val_flt = v;
-        val_int = std::isfinite(v) ? static_cast<int64_t>(v) : 0;
+        val_int = is_int64_convertible(v) ? static_cast<int64_t>(v) : 0;
         val = mk_val<value_int>(val_int);
     }
     virtual std::string type() const override { return "Float"; }

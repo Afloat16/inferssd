@@ -592,8 +592,12 @@ const func_builtins & value_float_t::get_builtins() const {
         }},
         {"int", [](const func_args & args) -> value {
             args.ensure_vals<value_float>();
-            int64_t val = static_cast<int64_t>(args.get_pos(0)->as_float());
-            return mk_val<value_int>(val);
+            const auto input = args.get_pos(0);
+            if (!is_int64_convertible(input->as_float())) {
+                const auto fallback = args.get_kwarg_or_pos("default", 1);
+                return mk_val<value_int>(fallback->is_undefined() ? 0 : fallback->as_int());
+            }
+            return mk_val<value_int>(input->as_int());
         }},
         {"float", [](const func_args & args) -> value {
             args.ensure_vals<value_float>();

@@ -2,6 +2,7 @@
 #include <iostream>
 #include <random>
 #include <cstdlib>
+#include <limits>
 
 #include <nlohmann/json.hpp>
 #include <sheredom/subprocess.h>
@@ -23,6 +24,7 @@ static void test_loops(testing & t);
 static void test_expressions(testing & t);
 static void test_set_statement(testing & t);
 static void test_filters(testing & t);
+static void test_numeric_conversions(testing & t);
 static void test_literals(testing & t);
 static void test_comments(testing & t);
 static void test_macros(testing & t);
@@ -62,6 +64,7 @@ int main(int argc, char *argv[]) {
     t.test("expressions", test_expressions);
     t.test("set statement", test_set_statement);
     t.test("filters", test_filters);
+    t.test("numeric conversions", test_numeric_conversions);
     t.test("literals", test_literals);
     t.test("comments", test_comments);
     t.test("macros", test_macros);
@@ -823,6 +826,51 @@ static void test_filters(testing & t) {
         {{"x", nullptr}},
         "None"
     );
+}
+
+static void test_numeric_conversions(testing & t) {
+    struct example { const char * name; double input; const char * expected; bool python; };
+    const example cases[] = {
+        {"positive overflow", 1e30, "7", false},
+        {"negative overflow", -1e30, "7", false},
+        {"exclusive upper bound", 0x1p63, "7", false},
+        {"below lower bound", std::nextafter(-0x1p63, -INFINITY), "7", false},
+        {"largest representable integer", std::nextafter(0x1p63, 0.0), "9223372036854774784", true},
+        {"inclusive lower bound", -0x1p63, "-9223372036854775808", true},
+        {"positive fraction", 2.75, "2", true},
+        {"negative fraction", -2.75, "-2", true},
+        {"subnormal fraction", std::numeric_limits<double>::denorm_min(), "0", true},
+        {"negative zero", -0.0, "0", true},
+    };
+    for (const auto & item : cases) {
+        // Python has arbitrary-precision integers, unlike this runtime.
+        if (g_python_mode && !item.python) { continue; }
+        test_template(t, item.name, "{{ value | int(default=7) }}", {{"value", item.input}}, item.expected);
+    }
+    for (const char * text : {"inf", "-inf", "nan"}) {
+        // Jinja2 3.1.6 raises OverflowError for infinity instead of using
+        // its default. Check this runtime's bounded fallback natively.
+        if (g_python_mode && std::string(text) != "nan") { continue; }
+        test_template(t, std::string("nonfinite ") + text,
+                "{{ value | float | int(default=7) }}", {{"value", text}}, "7");
+    }
+    test_template(t, "maximum integer construction", "{{ value }}",
+            {{"value", std::numeric_limits<int64_t>::max()}}, "9223372036854775807");
+    test_template(t, "large float remains usable", "{{ value > 0.0 }}", {{"value", 1e30}}, "True");
+    if (!g_python_mode) {
+        test_template(t, "implicit overflow default", "{{ value | int }}", {{"value", 1e30}}, "0");
+        test_template(t, "positional overflow default", "{{ value | int(9) }}", {{"value", -1e30}}, "9");
+        t.test("bounded numeric caches", [](testing & t) {
+            for (double input : {1e30, -1e30, 0x1p63, std::nextafter(-0x1p63, -INFINITY)}) {
+                const auto value = jinja::mk_val<jinja::value_float>(input);
+                t.assert_equal("unrepresentable integer cache is zero", int64_t{0}, value->as_int());
+                t.assert_equal("original float is preserved", input, value->as_float());
+            }
+            const auto max_int = jinja::mk_val<jinja::value_int>(std::numeric_limits<int64_t>::max());
+            t.assert_equal("integer bytes remain exact", std::numeric_limits<int64_t>::max(), max_int->as_int());
+            t.assert_true("nonrepresentable float cache keeps its sentinel", std::isinf(max_int->as_float()));
+        });
+    }
 }
 
 static void test_literals(testing & t) {
