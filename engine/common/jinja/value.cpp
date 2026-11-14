@@ -1090,7 +1090,7 @@ const func_builtins & value_array_t::get_builtins() const {
             const bool attr_is_int = is_val<value_int>(attribute);
             const int64_t attr_int = attr_is_int ? attribute->as_int() : 0;
             std::vector<value> arr = val->as_array(); // copy
-            std::sort(arr.begin(), arr.end(),[&](const value & a, const value & b) {
+            std::stable_sort(arr.begin(), arr.end(),[&](const value & a, const value & b) {
                 value val_a = a;
                 value val_b = b;
                 if (!attribute->is_undefined()) {
@@ -1206,7 +1206,7 @@ const func_builtins & value_object_t::get_builtins() const {
             const bool reverse = val_reverse->as_bool(); // undefined == false
             const bool by_value = is_val<value_string>(val_by) && val_by->as_string().str() == "value" ? true : false;
             auto result = mk_val<value_object>(val_input); // copy
-            std::sort(result->val_obj.begin(), result->val_obj.end(), [&](const auto & a, const auto & b) {
+            std::stable_sort(result->val_obj.begin(), result->val_obj.end(), [&](const auto & a, const auto & b) {
                 if (by_value) {
                     return value_compare(a.second, b.second, reverse ? value_compare_op::gt : value_compare_op::lt);
                 } else {

@@ -23,6 +23,7 @@ static void test_loops(testing & t);
 static void test_expressions(testing & t);
 static void test_set_statement(testing & t);
 static void test_filters(testing & t);
+static void test_sort_stability(testing & t);
 static void test_literals(testing & t);
 static void test_comments(testing & t);
 static void test_macros(testing & t);
@@ -62,6 +63,7 @@ int main(int argc, char *argv[]) {
     t.test("expressions", test_expressions);
     t.test("set statement", test_set_statement);
     t.test("filters", test_filters);
+    t.test("sort stability", test_sort_stability);
     t.test("literals", test_literals);
     t.test("comments", test_comments);
     t.test("macros", test_macros);
@@ -823,6 +825,127 @@ static void test_filters(testing & t) {
         {{"x", nullptr}},
         "None"
     );
+}
+
+static void test_sort_stability(testing & t) {
+    // Unlike the general helper, unsupported native execution must fail these regressions.
+    auto run = [&](const std::string & name, const std::string & tmpl, const json & vars,
+                   const std::string & expected) {
+        if (g_python_mode) {
+            test_template(t, name, tmpl, vars, expected);
+            return;
+        }
+        t.test(name, [&](testing & test) {
+            jinja::lexer lexer;
+            auto ast = jinja::parse_from_tokens(lexer.tokenize(tmpl));
+            jinja::context ctx(tmpl);
+            jinja::global_from_json(ctx, vars, true);
+            jinja::runtime runtime(ctx);
+            auto result = runtime.gather_string_parts(runtime.execute(ast))->as_string();
+            test.assert_equal("rendered output", expected, result.str());
+        });
+    };
+
+    json equal_rows = json::array();
+    json grouped_rows = json::array();
+    json equal_values = json::object();
+    json grouped_values = json::object();
+    std::string equal_tuples = "(";
+    std::string grouped_tuples = "(";
+    std::string input_order;
+    std::string input_key_order;
+    for (int i = 0; i < 64; ++i) {
+        const auto id = std::to_string(i);
+        equal_rows.push_back({{"id", i}, {"rank", 0}});
+        grouped_rows.push_back({{"id", i}, {"rank", i % 4}, {"secondary", (i / 4) % 4}});
+        equal_values["r" + id] = 0;
+        grouped_values["r" + id] = i % 4;
+        equal_tuples += "(" + id + ", 0),";
+        grouped_tuples += "(" + id + ", " + std::to_string(i % 4) + "),";
+        input_order += id + ";";
+        input_key_order += "r" + id + ";";
+    }
+    equal_tuples.back() = ')';
+    grouped_tuples.back() = ')';
+
+    for (bool reverse : {false, true}) {
+        const std::string direction = reverse ? " descending" : " ascending";
+        const std::string flag = reverse ? "true" : "false";
+        run("equal object attributes" + direction,
+            "{% for row in rows|sort(attribute='rank', reverse=" + flag + ") %}{{ row.id }};{% endfor %}",
+            {{"rows", equal_rows}}, input_order);
+        run("equal tuple attributes" + direction,
+            "{% for row in " + equal_tuples + "|sort(attribute=1, reverse=" + flag + ") %}{{ row[0] }};{% endfor %}",
+            json::object(), input_order);
+        run("equal dictionary values" + direction,
+            "{% for key, value in values|dictsort(by='value', reverse=" + flag + ") %}{{ key }};{% endfor %}",
+            {{"values", equal_values}}, input_key_order);
+
+        // Derive the oracle from each rank followed by original positions, without sorting it.
+        std::string ranked;
+        std::string ranked_keys;
+        for (int group = 0; group < 4; ++group) {
+            const int rank = reverse ? 3 - group : group;
+            for (int i = 0; i < 64; ++i) {
+                if (i % 4 == rank) {
+                    ranked += std::to_string(i) + ";";
+                    ranked_keys += "r" + std::to_string(i) + ";";
+                }
+            }
+        }
+        run("grouped object attributes" + direction,
+            "{% for row in rows|sort(attribute='rank', reverse=" + flag + ") %}{{ row.id }};{% endfor %}",
+            {{"rows", grouped_rows}}, ranked);
+        run("grouped tuple attributes" + direction,
+            "{% for row in " + grouped_tuples + "|sort(attribute=1, reverse=" + flag + ") %}{{ row[0] }};{% endfor %}",
+            json::object(), ranked);
+        run("grouped dictionary values" + direction,
+            "{% for key, value in values|dictsort(by='value', reverse=" + flag + ") %}{{ key }};{% endfor %}",
+            {{"values", grouped_values}}, ranked_keys);
+    }
+
+    for (bool primary_reverse : {false, true}) {
+        for (bool secondary_reverse : {false, true}) {
+            std::string expected;
+            for (int primary = 0; primary < 4; ++primary) {
+                for (int secondary = 0; secondary < 4; ++secondary) {
+                    const int rank = primary_reverse ? 3 - primary : primary;
+                    const int second = secondary_reverse ? 3 - secondary : secondary;
+                    for (int i = 0; i < 64; ++i) {
+                        if (i % 4 == rank && (i / 4) % 4 == second) {
+                            expected += std::to_string(i) + ";";
+                        }
+                    }
+                }
+            }
+            const std::string primary_flag = primary_reverse ? "true" : "false";
+            const std::string secondary_flag = secondary_reverse ? "true" : "false";
+            run("chained attributes reverse=" + primary_flag + "," + secondary_flag,
+                "{% for row in rows|sort(attribute='secondary', reverse=" + secondary_flag +
+                ")|sort(attribute='rank', reverse=" + primary_flag + ") %}{{ row.id }};{% endfor %}",
+                {{"rows", grouped_rows}}, expected);
+        }
+    }
+
+    run("empty and singleton arrays", "{{ []|sort|length }};{{ [7]|sort|join(';') }}",
+        json::object(), "0;7");
+    run("empty and singleton dictionaries",
+        "{{ {}|dictsort|length }};{% for key, value in {'only': 7}|dictsort(by='value') %}{{ key }}={{ value }}{% endfor %}",
+        json::object(), "0;only=7");
+    run("distinct values ascending", "{{ [3, 1, 4, 2]|sort|join(';') }}", json::object(), "1;2;3;4");
+    run("distinct values descending", "{{ [3, 1, 4, 2]|sort(reverse=true)|join(';') }}", json::object(), "4;3;2;1");
+    run("dictionary keys ascending",
+        "{% for key, value in {'b': 1, 'a': 2, 'c': 3}|dictsort %}{{ key }}{% endfor %}",
+        json::object(), "abc");
+    run("dictionary keys descending",
+        "{% for key, value in {'b': 1, 'a': 2, 'c': 3}|dictsort(reverse=true) %}{{ key }}{% endfor %}",
+        json::object(), "cba");
+    run("array input remains unchanged",
+        "{% set ordered = rows|sort(attribute='rank') %}{% for row in rows %}{{ row.id }};{% endfor %}",
+        {{"rows", grouped_rows}}, input_order);
+    run("dictionary input remains unchanged",
+        "{% set ordered = values|dictsort(by='value') %}{% for key, value in values.items() %}{{ key }};{% endfor %}",
+        {{"values", grouped_values}}, input_key_order);
 }
 
 static void test_literals(testing & t) {
