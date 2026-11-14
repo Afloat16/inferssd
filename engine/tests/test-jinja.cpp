@@ -23,6 +23,7 @@ static void test_loops(testing & t);
 static void test_expressions(testing & t);
 static void test_set_statement(testing & t);
 static void test_filters(testing & t);
+static void test_replace_limits(testing & t);
 static void test_literals(testing & t);
 static void test_comments(testing & t);
 static void test_macros(testing & t);
@@ -62,6 +63,7 @@ int main(int argc, char *argv[]) {
     t.test("expressions", test_expressions);
     t.test("set statement", test_set_statement);
     t.test("filters", test_filters);
+    t.test("replace limits", test_replace_limits);
     t.test("literals", test_literals);
     t.test("comments", test_comments);
     t.test("macros", test_macros);
@@ -823,6 +825,64 @@ static void test_filters(testing & t) {
         {{"x", nullptr}},
         "None"
     );
+}
+
+static void test_replace_limits(testing & t) {
+    const auto run = [&](const std::string & name, const std::string & tmpl,
+            const json & vars, const std::string & expected, const std::string & origins = "") {
+        if (g_python_mode) {
+            test_template(t, name, tmpl, vars, expected);
+            return;
+        }
+        // Unlike the legacy general helper, unsupported operations must fail
+        // this regression instead of being logged as skipped.
+        t.test(name, [&](testing & test) {
+            jinja::lexer lexer;
+            const auto ast = jinja::parse_from_tokens(lexer.tokenize(tmpl));
+            jinja::context ctx(tmpl);
+            jinja::global_from_json(ctx, vars, true);
+            jinja::runtime runtime(ctx);
+            const auto result = runtime.gather_string_parts(runtime.execute(ast))->as_string();
+            test.assert_equal("rendered output", expected, result.str());
+            if (!origins.empty()) {
+                std::string actual;
+                for (const auto & part : result.parts) actual.append(part.val.size(), part.is_input ? 'I' : 'T');
+                test.assert_equal("byte provenance", origins, actual);
+            }
+        });
+    };
+    struct example { const char * name; int64_t count; const char * output; };
+    for (const auto & item : std::vector<example>{
+            {"one replacement", 1, "bXnana"}, {"two replacements", 2, "bXnXna"},
+            {"zero replacements", 0, "banana"}, {"unlimited negative", -1, "bXnXnX"},
+            {"other negative", -2, "bXnXnX"}, {"limit exceeds matches", 20, "bXnXnX"},
+            {"large positive limit", 10000, "bXnXnX"}}) {
+        run(item.name, "{{ input | replace('a', 'X', count) }}",
+                {{"input", "banana"}, {"count", item.count}}, item.output);
+    }
+    run("nonoverlapping matches", "{{ input | replace('aa', 'X', 2) }}", {{"input", "aaaaa"}}, "XXa");
+    run("delete one occurrence", "{{ input | replace('na', '', 1) }}", {{"input", "banana"}}, "bana");
+    run("expanded replacements", "{{ input | replace('a', 'XYZ', 2) }}", {{"input", "ababa"}}, "XYZbXYZba");
+    run("no match with limit", "{{ input | replace('z', 'X', 2) }}", {{"input", "banana"}}, "banana");
+    run("empty input with limit", "{{ input | replace('a', 'X', 2) }}", {{"input", ""}}, "");
+    run("keyword limit", "{{ input | replace('a', 'X', count=2) }}", {{"input", "banana"}}, "bXnXna");
+    run("keyword zero", "{{ input | replace('a', 'X', count=0) }}", {{"input", "banana"}}, "banana");
+    run("method limit", "{{ input.replace('a', 'X', 2) }}", {{"input", "banana"}}, "bXnXna");
+    run("method negative", "{{ input.replace('a', 'X', -1) }}", {{"input", "banana"}}, "bXnXnX");
+    run("omitted limit", "{{ input | replace('a', 'X') }}", {{"input", "banana"}}, "bXnXnX");
+    run("omitted unmatched limit", "{{ input | replace('z', 'X') }}", {{"input", "banana"}}, "banana");
+    run("zero keeps mixed provenance", "{{ ('a' ~ input ~ 'z') | replace('a', 'X', 0) }}",
+            {{"input", "a"}}, "aaz", "TIT");
+    run("limited mixed provenance", "{{ ('A:' ~ input ~ ':A') | replace('A', 'Z', 2) }}",
+            {{"input", "A"}}, "Z:Z:A", "TTITT");
+    run("match crosses origin boundary", "{{ ('ab' ~ input ~ 'd') | replace('bc', 'X', 1) }}",
+            {{"input", "c"}}, "aXd", "TIT");
+    run("input replacement provenance", "{{ 'A:A' | replace('A', replacement, 1) }}",
+            {{"replacement", "<eos>"}}, "<eos>:A", "IIIIITT");
+    run("unicode replacement", "{{ input | replace('€', 'X', 1) }}",
+            {{"input", "€☃€"}}, "X☃€", "IIIIIII");
+    run("embedded null", "{{ input | replace('a', 'X', 1) }}",
+            {{"input", std::string("a\0a", 3)}}, std::string("X\0a", 3), "III");
 }
 
 static void test_literals(testing & t) {
@@ -2113,8 +2173,8 @@ static void test_template_py(testing & t, const std::string & name, const std::s
         std::string output;
         char buffer[1024];
         FILE * p_stdout = subprocess_stdout(&subprocess);
-        while (fgets(buffer, sizeof(buffer), p_stdout)) {
-            output += buffer;
+        while (const size_t bytes = fread(buffer, 1, sizeof(buffer), p_stdout)) {
+            output.append(buffer, bytes);
         }
 
         int process_return;

@@ -741,21 +741,20 @@ const func_builtins & value_string_t::get_builtins() const {
             std::string str = args.get_pos(0)->as_string().str();
             std::string old_str = args.get_pos(1)->as_string().str();
             std::string new_str = args.get_pos(2)->as_string().str();
-            int64_t count = args.count() > 3 ? args.get_pos(3)->as_int() : -1;
-            if (count > 0) {
-                throw not_implemented_exception("String replace with count argument not implemented");
-            }
+            const auto val_count = args.get_kwarg_or_pos("count", 3);
+            int64_t count = val_count->is_undefined() ? -1 : val_count->as_int();
             const auto origin = args.get_pos(0)->as_string();
             const auto replacement = args.get_pos(2)->as_string();
             if (old_str.empty()) throw raised_exception("replace() empty pattern is not supported");
             jinja::string result;
             size_t begin = 0, pos;
-            while ((pos = str.find(old_str, begin)) != std::string::npos) {
+            while (count != 0 && (pos = str.find(old_str, begin)) != std::string::npos) {
                 result.append(origin.substr(begin, pos - begin));
                 auto inserted = replacement;
                 if (origin.substr(pos, old_str.size()).any_parts_are_input()) inserted.mark_input();
                 result.append(inserted);
                 begin = pos + old_str.size();
+                if (count > 0) --count;
             }
             result.append(origin.substr(begin));
             return mk_val<value_string>(result);

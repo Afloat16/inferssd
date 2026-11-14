@@ -727,6 +727,7 @@ endif()
 
 llama_build_and_test(test-chat-peg-parser.cpp peg-parser/simple-tokenize.cpp)
 llama_build_and_test(test-jinja.cpp)
+llama_test(test-jinja NAME jinja_replace_limits ARGS "replace limits.*")
 llama_build_and_test(ssd/test-chat-literal.cpp ARGS ${PROJECT_SOURCE_DIR}/models/ggml-vocab-qwen2.gguf ${PROJECT_SOURCE_DIR}/models/ggml-vocab-llama-bpe.gguf)
 llama_test(test-jinja NAME test-jinja-py ARGS -py LABEL python)
 find_package(Python3 COMPONENTS Interpreter QUIET)
